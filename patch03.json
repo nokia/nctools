@@ -1,0 +1,10 @@
+{
+	"server-msg-modifier": [],
+  "client-msg-modifier": [],
+  "auto-respond": [
+    {
+			"match": "[\\s\\S]+(message-id=\"\\d+\")[\\s\\S]+<copy-config>[\\s\\S]+",
+			"response": "<rpc-reply \\1 xmlns=\"urn:ietf:params:xml:ns:netconf:base:1.0\"><ok/></rpc-reply>"
+    }
+  ]
+}

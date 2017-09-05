@@ -1,0 +1,19 @@
+{
+	"server-msg-modifier": [
+		{
+			"match": "<capability>urn:ietf:params:netconf:capability:writable-running:1.0</capability>",
+			"patch": "<!-- writable-running removed -->"
+		},
+		{
+			"match": "<capability>urn:ietf:params:netconf:base:1.1</capability>",
+			"patch": "<!-- base:1.1 removed -->"
+		}    
+	],
+  "client-msg-modifier": [
+		{
+			"match": "<capability>urn:ietf:params:netconf:base:1.1</capability>",
+			"patch": "<!-- base:1.1 removed -->"
+		}
+  ],
+  "auto-respond": []
+}

@@ -6,6 +6,7 @@
 #  History Change Log:                                                       #
 #                                                                            #
 #    1.0  [SW]  2017/09/04    first version                                  #
+#    1.1  [SW]  2017/09/05    improved logging, patching, auto-responses     #
 #                                                                            #
 #  Objective:                                                                #
 #    ncproxy is a transparent logging proxy for NETONF over SSH              #
@@ -22,7 +23,7 @@
 ##############################################################################
 
 """
-NETCONF proxy in Python Version 1.0
+NETCONF proxy in Python Version 1.1
 Copyright (C) 2015-2017 Nokia. All Rights Reserved.
 """
 
@@ -36,6 +37,8 @@ import threading
 import time
 import traceback
 import argparse
+import json
+import re
 
 if sys.version_info > (3,):
     from urllib.parse import urlparse
@@ -43,10 +46,10 @@ else:
     from urlparse import urlparse
 
 __title__ = "ncproxy"
-__version__ = "1.0"
+__version__ = "1.1"
 __status__ = "released"
 __author__ = "Sven Wisotzky"
-__date__ = "2017 September 4th"
+__date__ = "2017 September 5th"
 
 
 class ncHandler(paramiko.SubsystemHandler):
@@ -89,7 +92,7 @@ class ncHandler(paramiko.SubsystemHandler):
             srvmsgs = []
             if len(srvbuf) > 4:
                 if srvbuf[0:2] != "\n#":
-                    base10 = True   # base:1.0 framing (EOM)
+                    base10 = True   # --- base:1.0 framing (EOM) -------------
                     srvmsgs = srvbuf.split("]]>]]>")
                     srvbuf = srvmsgs.pop()
                 else:
@@ -118,10 +121,11 @@ class ncHandler(paramiko.SubsystemHandler):
                             srvbuf = ""
                             break
 
-            # --- forward and print srvmsgs[] --------------------------------
-
+            # --- patch, forward, print NETCONF server messages: srvmsgs[] ---
             for msg in srvmsgs:
-                # --- send/print what we've got ------------------------------
+                for rule in rules['server-msg-modifier']:
+                    msg = rule['regex'].sub(rule['patch'], msg)
+                    
                 if not base10:
                     buf = "\n#%d\n" % len(msg)
                     channel.send(buf)
@@ -156,7 +160,7 @@ class ncHandler(paramiko.SubsystemHandler):
             nccmsgs = []
             if len(nccbuf) > 4:
                 if nccbuf[0:2] != "\n#":
-                    base10 = True   # base:1.0 framing (EOM)
+                    base10 = True   # --- base:1.0 framing (EOM) -------------
                     nccmsgs = nccbuf.split("]]>]]>")
                     nccbuf = nccmsgs.pop()
                 else:
@@ -185,12 +189,30 @@ class ncHandler(paramiko.SubsystemHandler):
                             nccbuf = ""
                             break
 
-            # --- forward and print nccmsgs[] --------------------------------
-
+            # --- patch, forward, print NETCONF client messages: nccmsgs[] ---
             for msg in nccmsgs:
+                for rule in rules['client-msg-modifier']:
+                    msg = rule['regex'].sub(rule['patch'], msg)
+                    
+                sendmsg = True
+                for rule in rules['auto-respond']:
+                    if rule['regex'].match(msg):
+                        log.info('Auto-response to NETCONF client message')
+                        tmp = rule['regex'].sub(rule['response'], msg)
+                        if base10:
+                            srvbuf += tmp
+                            srvbuf += "]]>]]>"
+                        else:
+                            srvbuf += "\n#%d\n" % len(tmp)
+                            srvbuf += tmp
+                            srvbuf += "\n##\n"
+                        sendmsg = False
+                        break
+            
                 if not base10:
                     buf = "\n#%d\n" % len(msg)
-                    srv_channel.send(buf)
+                    if sendmsg:
+                        srv_channel.send(buf)
                     clientlog.write(buf)
 
                 pos = 0
@@ -201,14 +223,16 @@ class ncHandler(paramiko.SubsystemHandler):
                     else:
                         buf = msg[pos:]
                         pos = len(msg)
-                    srv_channel.send(buf)
+                    if sendmsg:
+                        srv_channel.send(buf)
                     clientlog.write(buf)
 
                 if base10:
                     buf = "]]>]]>"
                 else:
                     buf = "\n##\n"
-                srv_channel.send(buf)
+                if sendmsg:
+                    srv_channel.send(buf)
                 clientlog.write(buf)
                 clientlog.flush()
 
@@ -228,12 +252,12 @@ class ncHandler(paramiko.SubsystemHandler):
         if channel.exit_status_ready():
             log.warning("Connection closed by peer; client down")
 
-        # close channel/transport to NETCONF server
+        # --- close channel/transport to NETCONF server ----------------------
         srv_channel.close()
         srv_transport.close()
         srv_tcpsock.close()
 
-        # close channel/transport to NETCONF client
+        # --- close channel/transport to NETCONF client ----------------------
         channel.close()
         transport.close()
 
@@ -293,7 +317,6 @@ class ssh_server(paramiko.ServerInterface):
 
 if __name__ == '__main__':
     prog = os.path.splitext(os.path.basename(sys.argv[0]))[0]
-    dlog = prog + '.log'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--version', action='version', version=prog + ' ' + __version__)
@@ -301,18 +324,25 @@ if __name__ == '__main__':
     group = parser.add_argument_group()
     group.add_argument('-v', '--verbose', action='count', help='enable logging')
     group.add_argument('-d', '--debug', action='count', help='enable ssh-lib logging')
-    group.add_argument('--logfile', metavar='<filename>', default=dlog, type=argparse.FileType('wb', 0), help='Specify the logfile (default: %s)' % dlog)
-    group.add_argument('--serverlog', metavar='<filename>', default='-', type=argparse.FileType('wb', 0), help='Specify the server log (default: <stdout>)')
-    group.add_argument('--clientlog', metavar='<filename>', default='-', type=argparse.FileType('wb', 0), help='Specify the client log (default: <stdout>)')
+    group.add_argument('--logfile', metavar='filename', type=argparse.FileType('wb', 0), help='trace/debug log (default: <stderr>)')
+    group.add_argument('--serverlog', metavar='filename', default='-', type=argparse.FileType('wb', 0), help='server log (default: <stdout>)')
+    group.add_argument('--clientlog', metavar='filename', default='-', type=argparse.FileType('wb', 0), help='client log (default: <stdout>)')
+
+    group = parser.add_argument_group()
+    group.add_argument('--patch', metavar='filename', type=argparse.FileType('r'), help='Patch NETCONF messages (default: <none>)')
 
     group = parser.add_argument_group()
     group.add_argument('--port', metavar='tcpport', type=int, default=830, help='TCP-port ncproxy is listening')
-    group.add_argument('server', metavar='netconf://<hostname>[:port]', default="netconf://127.0.0.1:830", help='Netconf over SSH server (default: <netconf://127.0.0.1:830)>)')
+    group.add_argument('server', metavar='netconf://<hostname>[:port]', default="netconf://127.0.0.1:830", help='Netconf over SSH server')
+
 
     options = parser.parse_args()
 
     # --- setup module logging -----------------------------------------------
-    loghandler = logging.StreamHandler(options.logfile)
+    if options.logfile is None:
+        loghandler = logging.StreamHandler(sys.stderr)
+    else:
+        loghandler = logging.StreamHandler(options.logfile)
     timeformat = '%y/%m/%d %H:%M:%S'
     logformat = '%(asctime)s,%(msecs)-3d %(levelname)-8s %(message)s'
     loghandler.setFormatter(logging.Formatter(logformat, timeformat))
@@ -370,6 +400,21 @@ if __name__ == '__main__':
     if url.scheme != "netconf":
         log.critical('Connection to NETCONF server(s) only')
         sys.exit(1)
+
+    # --- parse server URL ---------------------------------------------------
+    if options.patch:
+        rules = json.load(options.patch)
+        for rule in rules['server-msg-modifier']:
+            rule['regex'] = re.compile(rule['match'], re.MULTILINE)
+        for rule in rules['client-msg-modifier']:
+            rule['regex'] = re.compile(rule['match'], re.MULTILINE)
+        for rule in rules['auto-respond']:
+            rule['regex'] = re.compile(rule['match'], re.MULTILINE)
+    else:
+        rules = {}
+        rules['server-msg-modifier'] = []
+        rules['client-msg-modifier'] = []
+        rules['auto-respond'] = []
 
     # --- waiting for incoming client connections ----------------------------
     try:
