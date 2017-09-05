@@ -8,6 +8,11 @@ point of view ncproxy acts as client and from the NETCONF client point of view i
 acts as server. All hello messages, RPC requests, RPC responses and notification
 messages are subject of logging.
 
+In the current version, only NETCONF over SSHv2 using password authentication
+is supported. Both framing methods end-of-message-framing (base1:0) and chunked
+framing (base1:1) are supported. Username and password are provided by the NETCONF
+client. Ncproxy is reusing this information to get connectivity towards to server.
+
 The ncproxy tool is helpful for network integrators, who want to troubleshoot NETCONF
 without having logging capabilities for neither the server nor the client. Capturing
 the SSHv2 traffic using tools like tcpdump, snoop or wireshark does typically not help,
@@ -18,7 +23,7 @@ as they are forwarded through the proxy. A JSON file is used to define the set o
 modification rules to be used. Each modification rule contains a match criteria (regex)
 and patch action.
 
-Beside of patching messages, the ncproxy support auto-responses. The user can define
+Beside of patching messages ncproxy support auto-responses. The user can define
 a match criteria, in which case the ncproxy is answer the clients NETCONF request on
 behalf of the NETCONF server. In conclusion, those rpc-requests are never send to the
 server, which allows to test NETCONF features, which are not yet implemented by the
@@ -29,21 +34,21 @@ message exchange:
 
 ```javascript
 {
-	"server-msg-modifier": [
-		{
-			"match": "<capability>urn:ietf:params:netconf:capability:writable-running:1.0</capability>",
-			"patch": "<!-- writable-running removed -->"
-		},
-		{
-			"match": "<capability>urn:ietf:params:netconf:base:1.1</capability>",
-			"patch": "<!-- base:1.1 removed -->"
-		}    
-	],
+  "server-msg-modifier": [
+    {
+      "match": "<capability>urn:ietf:params:netconf:capability:writable-running:1.0</capability>",
+      "patch": "<!-- writable-running removed -->"
+    },
+    {
+      "match": "<capability>urn:ietf:params:netconf:base:1.1</capability>",
+      "patch": "<!-- base:1.1 removed -->"
+    }    
+  ],
   "client-msg-modifier": [
-		{
-			"match": "<capability>urn:ietf:params:netconf:base:1.1</capability>",
-			"patch": "<!-- base:1.1 removed -->"
-		}
+    {
+      "match": "<capability>urn:ietf:params:netconf:base:1.1</capability>",
+      "patch": "<!-- base:1.1 removed -->"
+    }
   ],
   "auto-respond": []
 }
@@ -52,12 +57,12 @@ message exchange:
 Example patch02.json is replaces rpc-error messages with rpc-reply/ok responses:
 ```javascript
 {
-	"server-msg-modifier": [
-		{
-			"match": "[\\s\\S]+(message-id=\"\\d+\")[\\s\\S]+<rpc-error>[\\s\\S]+",
-			"patch": "<rpc-reply \\1 xmlns=\"urn:ietf:params:xml:ns:netconf:base:1.0\"><ok/></rpc-reply>"     
-		}
-	],
+  "server-msg-modifier": [
+    {
+      "match": "[\\s\\S]+(message-id=\"\\d+\")[\\s\\S]+<rpc-error>[\\s\\S]+",
+      "patch": "<rpc-reply \\1 xmlns=\"urn:ietf:params:xml:ns:netconf:base:1.0\"><ok/></rpc-reply>"     
+    }
+  ],
   "client-msg-modifier": [],
   "auto-respond": []
 }
@@ -66,12 +71,12 @@ Example patch02.json is replaces rpc-error messages with rpc-reply/ok responses:
 Example patch03.json automatically response with rpc-reply/ok for any copy-config requests.
 ```javascript
 {
-	"server-msg-modifier": [],
+  "server-msg-modifier": [],
   "client-msg-modifier": [],
   "auto-respond": [
     {
-			"match": "[\\s\\S]+(message-id=\"\\d+\")[\\s\\S]+<copy-config>[\\s\\S]+",
-			"response": "<rpc-reply \\1 xmlns=\"urn:ietf:params:xml:ns:netconf:base:1.0\"><ok/></rpc-reply>"
+      "match": "[\\s\\S]+(message-id=\"\\d+\")[\\s\\S]+<copy-config>[\\s\\S]+",
+      "response": "<rpc-reply \\1 xmlns=\"urn:ietf:params:xml:ns:netconf:base:1.0\"><ok/></rpc-reply>"
     }
   ]
 }
