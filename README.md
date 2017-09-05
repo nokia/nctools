@@ -49,7 +49,7 @@ message exchange:
 }
 ```
 
-Example patch02.json is replaces <rpc-error> messages with <rpc-reply>/<ok> responses:
+Example patch02.json is replaces rpc-error messages with rpc-reply/ok responses:
 ```javascript
 {
 	"server-msg-modifier": [
@@ -63,7 +63,7 @@ Example patch02.json is replaces <rpc-error> messages with <rpc-reply>/<ok> resp
 }
 ```
 
-Example patch03.json automatically response with <rpc-reply></ok> for any <copy-config> requests.
+Example patch03.json automatically response with rpc-reply/ok for any copy-config requests.
 ```javascript
 {
 	"server-msg-modifier": [],
