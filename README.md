@@ -11,7 +11,7 @@ messages are subject of logging.
 In the current version, only NETCONF over SSHv2 using password authentication
 is supported. Both framing methods end-of-message-framing (base1:0) and chunked
 framing (base1:1) are supported. Username and password are provided by the NETCONF
-client. Ncproxy is reusing this information to get connectivity towards to server.
+client while ncproxy is reusing this information to get connectivity towards to server.
 
 The ncproxy tool is helpful for network integrators, who want to troubleshoot NETCONF
 without having logging capabilities for neither the server nor the client. Capturing
@@ -21,7 +21,8 @@ as there is no easy way to break SSHv2 privacy.
 For improved trouble-shooting, ncproxy can be used to modify server and client messages
 as they are forwarded through the proxy. A JSON file is used to define the set of
 modification rules to be used. Each modification rule contains a match criteria (regex)
-and patch action.
+and a patch action. Using JSON requires the patch action to provided as single line.
+To improve readability and maintainability patch-files are supported.
 
 Beside of patching messages ncproxy support auto-responses. The user can define
 a match criteria, in which case the ncproxy is answer the clients NETCONF request on
@@ -82,7 +83,7 @@ Example patch03.json automatically response with rpc-reply/ok for any copy-confi
 }
 ```
 
-Usage example, help:
+Use the '--help' option to get usage information:
 ```
 $ ./ncproxy.py --help
 usage: ncproxy.py [-h] [--version] [-v] [-d] [--logfile filename]
@@ -106,7 +107,7 @@ optional arguments:
   netconf://<hostname>[:port]  Netconf over SSH server
 ```
 
-Usage example, with patching:
+Example, using patching and enable highest logging level:
 ```
 $ ./ncproxy.py --patch patch03.json -vvvvv 135.227.236.97:830
 17/09/05 11:08:24,38  INFO     Listening for client connection ...
