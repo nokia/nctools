@@ -7,6 +7,7 @@
 #                                                                            #
 #    1.0  [SW]  2017/09/04    first version                                  #
 #    1.1  [SW]  2017/09/05    improved logging, patching, auto-responses     #
+#    1.2  [SW]  2017/10/01    add support patch-files                        #
 #                                                                            #
 #  Objective:                                                                #
 #    ncproxy is a transparent logging proxy for NETONF over SSH              #
@@ -23,7 +24,7 @@
 ##############################################################################
 
 """
-NETCONF proxy in Python Version 1.1
+NETCONF proxy in Python Version 1.2
 Copyright (C) 2015-2017 Nokia. All Rights Reserved.
 """
 
@@ -46,10 +47,10 @@ else:
     from urlparse import urlparse
 
 __title__ = "ncproxy"
-__version__ = "1.1"
+__version__ = "1.2"
 __status__ = "released"
 __author__ = "Sven Wisotzky"
-__date__ = "2017 September 5th"
+__date__ = "2017 October 1st"
 
 
 class ncHandler(paramiko.SubsystemHandler):
@@ -405,10 +406,21 @@ if __name__ == '__main__':
     if options.patch:
         rules = json.load(options.patch)
         for rule in rules['server-msg-modifier']:
+            if rule.has_key('patch-file'):
+                with open(rule['patch-file'], 'r') as file:
+                    rule['patch'] = file.read()
             rule['regex'] = re.compile(rule['match'], re.MULTILINE)
+
         for rule in rules['client-msg-modifier']:
+            if rule.has_key('patch-file'):
+                with open(rule['patch-file'], 'r') as file:
+                    rule['patch'] = file.read()
             rule['regex'] = re.compile(rule['match'], re.MULTILINE)
+
         for rule in rules['auto-respond']:
+            if rule.has_key('response-file'):
+                with open(rule['response-file'], 'r') as file:
+                    rule['response'] = file.read()
             rule['regex'] = re.compile(rule['match'], re.MULTILINE)
     else:
         rules = {}
