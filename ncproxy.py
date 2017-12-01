@@ -8,6 +8,7 @@
 #    1.0  [SW]  2017/09/04    first version                                  #
 #    1.1  [SW]  2017/09/05    improved logging, patching, auto-responses     #
 #    1.2  [SW]  2017/10/01    add support patch-files                        #
+#    1.3  [SW]  2017/12/01    propagate auth-errors, fix regexp              #
 #                                                                            #
 #  Objective:                                                                #
 #    ncproxy is a transparent logging proxy for NETONF over SSH              #
@@ -55,19 +56,13 @@ __date__ = "2017 October 1st"
 
 class ncHandler(paramiko.SubsystemHandler):
 
-    def __init__(self, channel, name, server, username, password):
+    def __init__(self, channel, name, server, srv_transport):
         paramiko.SubsystemHandler.__init__(self, channel, name, server)
-        self.__username = username
-        self.__password = password
+        self.srv_transport = srv_transport
 
     def start_subsystem(self, name, transport, channel):
         try:
-            log.info('Establish NETCONF over SSH connection to %s:%d user(%s)', url.hostname, url.port or 830, self.__username)
-            srv_tcpsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            srv_tcpsock.connect((url.hostname, url.port or 830))
-            srv_transport = paramiko.Transport(srv_tcpsock)
-            srv_transport.connect(username=self.__username, password=self.__password)
-            srv_channel = srv_transport.open_session()
+            srv_channel = self.srv_transport.open_session()
             srv_channel.invoke_subsystem('netconf')
 
         except Exception as e:
@@ -126,7 +121,7 @@ class ncHandler(paramiko.SubsystemHandler):
             for msg in srvmsgs:
                 for rule in rules['server-msg-modifier']:
                     msg = rule['regex'].sub(rule['patch'], msg)
-                    
+
                 if not base10:
                     buf = "\n#%d\n" % len(msg)
                     channel.send(buf)
@@ -194,7 +189,7 @@ class ncHandler(paramiko.SubsystemHandler):
             for msg in nccmsgs:
                 for rule in rules['client-msg-modifier']:
                     msg = rule['regex'].sub(rule['patch'], msg)
-                    
+
                 sendmsg = True
                 for rule in rules['auto-respond']:
                     if rule['regex'].match(msg):
@@ -209,7 +204,7 @@ class ncHandler(paramiko.SubsystemHandler):
                             srvbuf += "\n##\n"
                         sendmsg = False
                         break
-            
+
                 if not base10:
                     buf = "\n#%d\n" % len(msg)
                     if sendmsg:
@@ -255,17 +250,13 @@ class ncHandler(paramiko.SubsystemHandler):
 
         # --- close channel/transport to NETCONF server ----------------------
         srv_channel.close()
-        srv_transport.close()
-        srv_tcpsock.close()
-
-        # --- close channel/transport to NETCONF client ----------------------
-        channel.close()
-        transport.close()
+        self.srv_transport.close()
 
 
 class ssh_server(paramiko.ServerInterface):
 
     def __init__(self):
+        log.debug("ssh_server.__init__()")
         self.event = threading.Event()
 
     def check_channel_request(self, kind, chanid):
@@ -276,8 +267,24 @@ class ssh_server(paramiko.ServerInterface):
 
     def check_auth_password(self, username, password):
         log.debug("ssh_server.check_auth_password(username=%s, password=%s)", username, password)
-        self.username = username
-        self.password = password
+        try:
+            self.srv_tcpsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.srv_tcpsock.connect((url.hostname, url.port or 830))
+            self.srv_transport = paramiko.Transport(self.srv_tcpsock)
+            self.srv_transport.connect(username=username, password=password)
+
+        except Exception as e:
+            # Should be either of the following:
+            #   paramiko.BadHostKeyException
+            #   paramiko.AuthenticationException
+            #   paramiko.SSHException
+            #   socket.error
+            log.critical('Server session setup/authentication failed: %s', str(e))
+            log.debug(''.join(traceback.format_exception(*sys.exc_info())))
+            self.srv_transport.close()
+            self.srv_tcpsock.close()
+            return paramiko.AUTH_FAILED
+
         return paramiko.AUTH_SUCCESSFUL
 
     def check_auth_publickey(self, username, key):
@@ -308,8 +315,7 @@ class ssh_server(paramiko.ServerInterface):
     def check_channel_subsystem_request(self, channel, name):
         log.debug("ssh_server.check_channel_subsystem_request(name=%s)", name)
         if name == 'netconf':
-            handler = ncHandler(
-                channel, name, self, self.username, self.password)
+            handler = ncHandler(channel, name, self, self.srv_transport)
             handler.start()
             return True
         log.critical('Subsystem %s is NOT supported', name)
@@ -335,7 +341,6 @@ if __name__ == '__main__':
     group = parser.add_argument_group()
     group.add_argument('--port', metavar='tcpport', type=int, default=830, help='TCP-port ncproxy is listening')
     group.add_argument('server', metavar='netconf://<hostname>[:port]', default="netconf://127.0.0.1:830", help='Netconf over SSH server')
-
 
     options = parser.parse_args()
 
@@ -409,19 +414,19 @@ if __name__ == '__main__':
             if rule.has_key('patch-file'):
                 with open(rule['patch-file'], 'r') as file:
                     rule['patch'] = file.read()
-            rule['regex'] = re.compile(rule['match'], re.MULTILINE)
+            rule['regex'] = re.compile(rule['match'], re.DOTALL)
 
         for rule in rules['client-msg-modifier']:
             if rule.has_key('patch-file'):
                 with open(rule['patch-file'], 'r') as file:
                     rule['patch'] = file.read()
-            rule['regex'] = re.compile(rule['match'], re.MULTILINE)
+            rule['regex'] = re.compile(rule['match'], re.DOTALL)
 
         for rule in rules['auto-respond']:
             if rule.has_key('response-file'):
                 with open(rule['response-file'], 'r') as file:
                     rule['response'] = file.read()
-            rule['regex'] = re.compile(rule['match'], re.MULTILINE)
+            rule['regex'] = re.compile(rule['match'], re.DOTALL)
     else:
         rules = {}
         rules['server-msg-modifier'] = []
@@ -442,7 +447,7 @@ if __name__ == '__main__':
         sys.exit(1)
 
     # --- handler for incoming client connections ----------------------------
-    host_key = paramiko.RSAKey.generate(1024)
+    host_key = paramiko.RSAKey.generate(2048)
     log.debug('Server Key: %s', binascii.hexlify(host_key.get_fingerprint()))
 
     while True:
