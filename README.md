@@ -113,3 +113,7 @@ $ ./ncproxy.py --patch patch03.json -vvvvv 135.227.236.97:830
 17/09/05 11:08:24,38  INFO     Listening for client connection ...
 17/09/05 11:08:26,799 DEBUG    Server Key: f2b3c60ea34bf2cd5bd1e1d8c0203228
 ```
+
+## License
+
+This project is licensed under the BSD-3-Clause license - see the [LICENSE](https://github.com/nokia/nctools/blob/master/LICENSE).
